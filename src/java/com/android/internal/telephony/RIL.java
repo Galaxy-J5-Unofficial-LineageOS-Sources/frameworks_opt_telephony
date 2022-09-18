@@ -73,6 +73,8 @@ import android.telephony.data.TrafficDescriptor;
 import android.telephony.emergency.EmergencyNumber;
 import android.text.TextUtils;
 import android.util.SparseArray;
+import android.hardware.radio.V1_0.SelectUiccSub;
+
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
@@ -194,6 +196,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
     AtomicBoolean mTestingEmergencyCall = new AtomicBoolean(false);
 
     final Integer mPhoneId;
+    private List<String> mOldRilFeatures;
+    private boolean mUseOldMncMccFormat;
 
     private static final String PROPERTY_IS_VONR_ENABLED = "persist.radio.is_vonr_enabled_";
 
@@ -1050,6 +1054,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
              * SecurityException and return correct value based on what HAL we're testing. */
             if (proxies == null) throw ex;
         }
+
+        final String oldRilFeatures = SystemProperties.get("ro.telephony.ril.config", "");
+        mOldRilFeatures = Arrays.asList(oldRilFeatures.split(","));
+
+        mUseOldMncMccFormat = SystemProperties.getBoolean(
+                "ro.telephony.use_old_mnc_mcc_format", false);
 
         TelephonyManager tm = (TelephonyManager) context.getSystemService(
                 Context.TELEPHONY_SERVICE);
@@ -2412,7 +2422,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest)
                         + " operatorNumeric = " + operatorNumeric + ", ran = " + ran);
             }
-
+            if (mUseOldMncMccFormat && !TextUtils.isEmpty(operatorNumeric)) {
+                operatorNumeric += "+";
+            }
             try {
                 networkProxy.setNetworkSelectionModeManual(rr.mSerial,
                         RILUtils.convertNullToEmptyString(operatorNumeric), ran);
@@ -4049,21 +4061,26 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void setUiccSubscription(int slotId, int appIndex, int subId, int subStatus,
-            Message result) {
-        RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class, result);
-        if (!simProxy.isEmpty()) {
+    public void setUiccSubscription(int appIndex, boolean activate, Message result) {
+        IRadio radioProxy = getRadioProxy(result);
+        if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_SET_UICC_SUBSCRIPTION, result,
                     mRILDefaultWorkSource);
 
             if (RILJ_LOGD) {
                 riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest)
-                        + " slot = " + slotId + " appIndex = " + appIndex
-                        + " subId = " + subId + " subStatus = " + subStatus);
+                        + " appIndex: " + appIndex + " activate: " + activate);
             }
 
+            SelectUiccSub info = new SelectUiccSub();
+            info.slot = mPhoneId;
+            info.appIndex = appIndex;
+
+            info.subType = mPhoneId;
+            info.actStatus = activate ? 1 : 0;
+
             try {
-                simProxy.setUiccSubscription(rr.mSerial, slotId, appIndex, subId, subStatus);
+                 radioProxy.setUiccSubscription(rr.mSerial, info);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(SIM_SERVICE, "setUiccSubscription", e);
             }
@@ -5932,5 +5949,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
             default:
                 return "UNKNOWN:" + service;
         }
+    }
+
+    public boolean needsOldRilFeature(String feature) {
+        return mOldRilFeatures.contains(feature);
     }
 }
