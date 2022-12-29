@@ -200,8 +200,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     private List<String> mOldRilFeatures;
     private boolean mUseOldMncMccFormat;
 
-    private boolean mUseOldMncMccFormat;
-
     private static final String PROPERTY_IS_VONR_ENABLED = "persist.radio.is_vonr_enabled_";
 
     static final int RADIO_SERVICE = 0;
